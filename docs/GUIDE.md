@@ -258,7 +258,7 @@ New in 5.0.0: a side of its own, in the Switch's red, to the right of the DS.
 ## Game files
 
 A side's games folder can be on the PS5, a USB drive, or a network share (a computer or NAS over SMB
-or NFS: **Settings > Game files > Network shares**; not the Switch side). Each side looks through its
+or NFS: **Settings > Game files > Network shares**; the Switch side too). Each side looks through its
 folder for new games when it opens, except a folder on a network share: with a large library that is
 a long wait at every start, so the side shows the games it found there last time at once ("As found
 last time" beside the Library's count). **Settings > Game files > Look for games now** looks again
@@ -319,7 +319,7 @@ extracted. Its saves are named by the archive, as a game's are by its file.
 ### Nintendo Switch
 
 Put games in `/data/eden/roms`, or pick another folder in **Settings > Game files** on the
-Switch side (not a network share: Eden cannot read those). With the app installed on a USB drive or
+Switch side (a network share too: Eden reads it through the same reader). With the app installed on a USB drive or
 the extended storage, `eden` is at the top of that drive instead (see
 [Everything on the app's drive](#everything-on-the-apps-drive)); the Setup check names the folder.
 

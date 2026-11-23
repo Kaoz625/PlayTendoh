@@ -1,0 +1,271 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Anthony <noreply@nyctailblazers.local>
+Date: Mon, 23 Nov 2026 15:45:35 -0500
+Subject: [PATCH] PS5-ECAM's Switch side: games on a network share, as its
+ other sides read them
+
+The Switch side's games folder may now be a network share (/net/<name>, from PS5-ECAM's Settings >
+Game files > Network shares): Eden reads it through PS5-ECAM's own reader (its port/app/netfs.cpp,
+libsmb2 and libnfs from its third_party), compiled in by headless/ecam.cmake when the checkout has
+it. tools/link-headless-native.sh, when libecam_netfs.a is among the inputs, wraps the C library's
+file calls for PS5-ECAM's port/ps5/netfs_files.cpp, binds access and the directory calls to its
+ps5cemu_ ones and renames the platform layer's fclose and fflush wraps in a copy of its archive,
+as PS5-ECAM's tools/link.sh does. main.cpp loads the launcher's network-shares.txt at start. Every
+path not under /net goes to the C library as before; nothing is written to a share.
+---
+ headless/CMakeLists.txt       |  7 ++++
+ headless/ecam.cmake           | 49 +++++++++++++++++++++++++++
+ headless/ecam_netfs_glue.cpp  | 62 +++++++++++++++++++++++++++++++++++
+ headless/main.cpp             | 28 ++++++++++++++++
+ tools/link-headless-native.sh | 41 ++++++++++++++++++++++-
+ 5 files changed, 186 insertions(+), 1 deletion(-)
+ create mode 100644 headless/ecam_netfs_glue.cpp
+
+diff --git a/headless/CMakeLists.txt b/headless/CMakeLists.txt
+index 0096515..07f1abe 100644
+--- a/headless/CMakeLists.txt
++++ b/headless/CMakeLists.txt
+@@ -3167,6 +3167,13 @@ if(TARGET ecam_ingame)
+     target_link_libraries(eden-headless PRIVATE ecam_ingame)
+     target_compile_definitions(eden-headless PRIVATE EDEN_ECAM=1)
+ endif()
++# PS5-ECAM's network shares (headless/ecam.cmake): the shares file read at start (main.cpp), and
++# the C library's file calls on /net paths answered by its reader (tools/link-headless-native.sh
++# sees libecam_netfs.a among the inputs and adds the wraps)
++if(TARGET ecam_netfs)
++    target_link_libraries(eden-headless PRIVATE ecam_netfs)
++    target_compile_definitions(eden-headless PRIVATE EDEN_ECAM_NETFS=1)
++endif()
+ # A game's text entry on the PS5's own on-screen keyboard (system_keyboard.h, keyboard_applet.h).
+ target_sources(eden-headless PRIVATE "${EDEN_PORT_DIR}/system_keyboard.cpp")
+ target_sources(eden-headless PRIVATE "${EDEN_PORT_DIR}/multiplayer.cpp")
+diff --git a/headless/ecam.cmake b/headless/ecam.cmake
+index 021c75f..a649404 100644
+--- a/headless/ecam.cmake
++++ b/headless/ecam.cmake
+@@ -30,3 +30,52 @@ if(PS5ECAM_PORT AND EXISTS "${PS5ECAM_PORT}/eden/ingame.cpp")
+     endforeach()
+     message(STATUS "PS5-ECAM's Switch screens: from ${PS5ECAM_PORT}")
+ endif()
++
++# PS5-ECAM's network shares on the Switch side (/net/<name>, from Settings > Game files > Network
++# shares): the same reader its Wii U, 3DS and DS sides use (PS5-ECAM's port/app/netfs.cpp, libsmb2 and
++# libnfs from its third_party, with its PS5 configurations), so a games folder on a computer or NAS
++# reaches Eden too. Its port/ps5/netfs_files.cpp answers the C library's file calls on /net paths
++# (tools/link-headless-native.sh wraps them when this library is in the link); every other path goes
++# to the C library as before. Read-only.
++if(PS5_NATIVE AND PS5ECAM_PORT AND EXISTS "${PS5ECAM_PORT}/app/netfs.cpp" AND EXISTS "${PS5ECAM_PORT}/ps5/netfs_files.cpp")
++    set(ecam_third_party "${PS5ECAM_PORT}/../third_party")
++    file(STRINGS "${ecam_third_party}/libsmb2/sources.txt" ecam_smb2_sources)
++    list(TRANSFORM ecam_smb2_sources PREPEND "${ecam_third_party}/libsmb2/lib/")
++    add_library(ecam_smb2 STATIC ${ecam_smb2_sources})
++    target_include_directories(ecam_smb2 BEFORE PRIVATE "${ecam_third_party}/libsmb2/ps5" "${ecam_third_party}/libsmb2/include/smb2")
++    target_include_directories(ecam_smb2 PUBLIC "${ecam_third_party}/libsmb2/include")
++    target_compile_definitions(ecam_smb2 PRIVATE HAVE_CONFIG_H getaddrinfo=porpoise_netfs_getaddrinfo freeaddrinfo=porpoise_netfs_freeaddrinfo
++        getlogin_r=porpoise_netfs_getlogin_r gethostname=porpoise_netfs_gethostname __isthreaded=porpoise_netfs_isthreaded SOL_TCP=IPPROTO_TCP)
++    # libsmb2's ciphers and hashes outside its smb2_ names, renamed as PS5-ECAM renames them, so no
++    # other library's function of the same name takes its calls
++    set(ecam_smb2_own_names
++        AES128_ECB_encrypt AES128_ECB_encrypt_reference AES128_ECB_decrypt_reference aes128ccm_encrypt aes128ccm_decrypt
++        MD4Init MD4Update MD4Final MD5Init MD5Update MD5Final MD5Transform
++        SHA256Reset SHA256Input SHA256FinalBits SHA256Result SHA384Reset SHA384Input SHA384FinalBits SHA384Result
++        SHA512Reset SHA512Input SHA512FinalBits SHA512Result
++        USHAReset USHAInput USHAFinalBits USHAResult USHABlockSize USHAHashSize USHAHashSizeBits
++        hmac hmacReset hmacInput hmacFinalBits hmacResult compound_file_id free_c_data)
++    list(TRANSFORM ecam_smb2_own_names REPLACE "^(.+)$" "\\1=smb2_\\1" OUTPUT_VARIABLE ecam_smb2_renames)
++    target_compile_definitions(ecam_smb2 PRIVATE ${ecam_smb2_renames})
++    target_compile_options(ecam_smb2 PRIVATE -std=gnu11 -w)
++    file(STRINGS "${ecam_third_party}/libnfs/sources.txt" ecam_nfs_sources)
++    list(TRANSFORM ecam_nfs_sources PREPEND "${ecam_third_party}/libnfs/")
++    add_library(ecam_nfs STATIC ${ecam_nfs_sources})
++    target_include_directories(ecam_nfs BEFORE PRIVATE "${ecam_third_party}/libnfs/ps5" "${ecam_third_party}/libnfs/include/nfsc"
++        "${ecam_third_party}/libnfs/mount" "${ecam_third_party}/libnfs/nfs" "${ecam_third_party}/libnfs/nfs4" "${ecam_third_party}/libnfs/portmap")
++    target_include_directories(ecam_nfs PUBLIC "${ecam_third_party}/libnfs/include")
++    target_compile_definitions(ecam_nfs PRIVATE HAVE_CONFIG_H NDEBUG getaddrinfo=porpoise_netfs_getaddrinfo freeaddrinfo=porpoise_netfs_freeaddrinfo
++        getprotobyname=porpoise_netfs_getprotobyname getservbyport=porpoise_netfs_getservbyport getnameinfo=porpoise_netfs_getnameinfo)
++    target_compile_options(ecam_nfs PRIVATE -std=gnu11 -w)
++    # its log lines go to stderr (Eden's stderr.log) instead of PS5-ECAM's boot log
++    # (PS5CEMU_NETFS_HOST_TEST changes only that, and its host tests' loopback switch, read from the
++    # environment); the host lookup is ecam_netfs_glue.cpp's
++    add_library(ecam_netfs STATIC "${PS5ECAM_PORT}/app/netfs.cpp" "${PS5ECAM_PORT}/ps5/netfs_files.cpp"
++        "${CMAKE_CURRENT_LIST_DIR}/ecam_netfs_glue.cpp")
++    target_include_directories(ecam_netfs PUBLIC "${PS5ECAM_PORT}")
++    target_compile_definitions(ecam_netfs PRIVATE PS5CEMU_NETFS_HOST_TEST)
++    target_compile_options(ecam_netfs PRIVATE -w $<$<BOOL:${PS5_NATIVE}>:-femulated-tls>)
++    set_target_properties(ecam_netfs PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
++    target_link_libraries(ecam_netfs PUBLIC ecam_smb2 ecam_nfs)
++    message(STATUS "PS5-ECAM's network shares on the Switch side: from ${PS5ECAM_PORT}")
++endif()
+diff --git a/headless/ecam_netfs_glue.cpp b/headless/ecam_netfs_glue.cpp
+new file mode 100644
+index 0000000..9cb002e
+--- /dev/null
++++ b/headless/ecam_netfs_glue.cpp
+@@ -0,0 +1,62 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// PS5-ECAM's network shares on the Switch side: the host lookup PS5-ECAM's port/app/netfs.cpp asks
++// for (ps5net::Resolve), the console's own resolver as PS5-ECAM's port/ps5/net.cpp asks it, without
++// that file's curl and log. An address written as one is that address; a name is looked up once a
++// session (2 s a try, three tries) and kept.
++
++#include <arpa/inet.h>
++#include <netinet/in.h>
++
++#include <cstdint>
++#include <cstdio>
++#include <map>
++#include <mutex>
++#include <string>
++
++extern "C" {
++int sceNetInit(void);
++int sceNetPoolCreate(const char* name, int size, int flags);
++int sceNetPoolDestroy(int pool);
++int sceNetResolverCreate(const char* name, int pool, int flags);
++int sceNetResolverStartNtoa(int resolver, const char* host, uint32_t* address, int timeoutUs, int retries, int flags);
++int sceNetResolverDestroy(int resolver);
++}
++
++namespace ps5net {
++
++uint32_t Resolve(const std::string& host) {
++    in_addr given{};
++    if (inet_pton(AF_INET, host.c_str(), &given) == 1)
++        return given.s_addr;
++    static std::mutex mutex;
++    static std::map<std::string, uint32_t> found;
++    {
++        std::lock_guard lock(mutex);
++        if (const auto it = found.find(host); it != found.end())
++            return it->second;
++    }
++    static const int net = sceNetInit();
++    (void)net;
++    const int pool = sceNetPoolCreate("eden-netfs-resolve", 16 * 1024, 0);
++    if (pool < 0) {
++        std::fprintf(stderr, "netfs: sceNetPoolCreate failed: %#x\n", static_cast<unsigned>(pool));
++        return 0;
++    }
++    uint32_t address = 0;
++    const int resolver = sceNetResolverCreate("eden-netfs-resolve", pool, 0);
++    const int result = resolver >= 0
++        ? sceNetResolverStartNtoa(resolver, host.c_str(), &address, 2 * 1000 * 1000, 2, 0)
++        : resolver;
++    if (resolver >= 0)
++        sceNetResolverDestroy(resolver);
++    sceNetPoolDestroy(pool);
++    if (result < 0 || address == 0) {
++        std::fprintf(stderr, "netfs: %s could not be found: %#x\n", host.c_str(), static_cast<unsigned>(result));
++        return 0;
++    }
++    std::lock_guard lock(mutex);
++    found[host] = address;
++    return address;
++}
++
++} // namespace ps5net
+diff --git a/headless/main.cpp b/headless/main.cpp
+index c203183..e2ce32b 100644
+--- a/headless/main.cpp
++++ b/headless/main.cpp
+@@ -138,6 +138,31 @@ extern "C" unsigned long long eden_dmb_dropped, eden_checkbit_fused;
+ #endif
+ #include "profiles.h"
+ #include "stop_limit.h"
++#ifdef EDEN_ECAM_NETFS
++#include "app/netfs.h"
++#include "ecam_layout.h"
++
++// PS5-ECAM's network shares (its Settings > Game files > Network shares), as /net/<name>: the
++// launcher's own file, in its data folder on the app's drive or else in /data/ps5cemu, so the Switch
++// side's games folder may be on one. Nothing connects until a file on a share is first read.
++static std::size_t LoadEcamNetworkShares() {
++    std::vector<std::string> files;
++    const std::string drive = ecam_layout::DriveData();
++    if (!drive.empty())
++        files.push_back(drive + "/network-shares.txt");
++    files.push_back(std::string{ECAM_SHARED_DATA} + "/network-shares.txt");
++    for (const std::string& file : files) {
++        if (!Eden::FileExists(file))
++            continue;
++        std::vector<ps5netfs::Share> shares;
++        if (ps5netfs::load(file, shares) && !shares.empty()) {
++            ps5netfs::set_shares(shares);
++            return shares.size();
++        }
++    }
++    return 0;
++}
++#endif
+ #ifdef EDEN_ECAM
+ #include "ingame.h"
+ #include "multiplayer.h"
+@@ -549,6 +574,9 @@ int main(int argc, char** argv) {
+                                   Eden::FileExists(std::string{folder} + "/eboot.bin") ? "yes" : "no",
+                                   Eden::FileExists(std::string{folder} + "/ui/fonts/montserrat-medium.pefont") ? "yes" : "no");
+         Eden::BootTrace::Line("app folder: %s", Eden::AppDir().c_str());
++#ifdef EDEN_ECAM_NETFS
++        Eden::BootTrace::Line("network shares: %zu", LoadEcamNetworkShares());
++#endif
+         std::set_new_handler([] {
+             ps5_opengl_heap_snapshot("allocation_failure", 0);
+             std::fflush(stdout);
+diff --git a/tools/link-headless-native.sh b/tools/link-headless-native.sh
+index 73e1fad..18d5d82 100644
+--- a/tools/link-headless-native.sh
++++ b/tools/link-headless-native.sh
+@@ -29,6 +29,45 @@ if [[ -n $radv_archive ]]; then
+     # RADV's platform provides the real thread-local destructor registration.
+     tls_flags=()
+ fi
++# PS5-ECAM's network shares (headless/ecam.cmake: libecam_netfs.a among the inputs): the C
++# library's file calls go through PS5-ECAM's port/ps5/netfs_files.cpp, which answers those on /net
++# paths and passes every other on after one comparison, as in PS5-ECAM's own link (its tools/link.sh).
++netfs_flags=()
++for argument in "${libraries[@]}"; do
++    [[ $argument == */libecam_netfs.a ]] || continue
++    for name in open read pread lseek close fstat stat lstat realpath fopen fclose fflush fread fwrite \
++            fseek fseeko ftell ftello rewind feof ferror clearerr fgetc getc ungetc fgets fileno; do
++        netfs_flags+=("--wrap=$name")
++    done
++    # access and the directory calls: the platform layer binds them to its own with --defsym, which a
++    # --wrap cannot come before, so they are bound to netfs_files.cpp's ps5cemu_ ones, which call the
++    # platform's; with no platform layer they are wrapped
++    bound=0
++    for index in "${!radv_link_flags[@]}"; do
++        for name in access opendir readdir closedir; do
++            if [[ ${radv_link_flags[index]} == "--defsym=$name=ps5_$name" ]]; then
++                radv_link_flags[index]="--defsym=$name=ps5cemu_$name"
++                netfs_flags+=("--undefined=ps5_$name" "--undefined=ps5cemu_$name")
++                bound=1
++            fi
++        done
++    done
++    if ((!bound)); then
++        netfs_flags+=(--wrap=access --wrap=opendir --wrap=readdir --wrap=closedir)
++    fi
++    # the platform layer's fclose and fflush wraps (its open_memstream), renamed in a copy of its
++    # archive to ps5_memstream_fclose and ps5_memstream_fflush: netfs_files.cpp wraps the two for /net
++    # files and calls these for every other FILE
++    for index in "${!radv_link_inputs[@]}"; do
++        if [[ ${radv_link_inputs[index]} == */libps5platform.a ]]; then
++            copy="$(dirname -- "$output")/libps5platform-netfs.a"
++            llvm-objcopy-18 --redefine-sym=__wrap_fclose=ps5_memstream_fclose --redefine-sym=__wrap_fflush=ps5_memstream_fflush \
++                "${radv_link_inputs[index]}" "$copy"
++            radv_link_inputs[index]=$copy
++        fi
++    done
++    break
++done
+ # Mesa's Vulkan entrypoint tables reference optional driver entrypoints as weak
+ # symbols (vk_entrypoints_gen --weak). An unimplemented one must resolve to 0,
+ # not become a dynamic import the native packager has no SDK stub for.
+@@ -40,7 +79,7 @@ fi
+ # The SDK's dlfcn wrappers explicitly return unavailable when these optional
+ # weak hooks are null. This static frontend supplies no dynamic-loader hooks.
+ "$template/.deps/native/ps5-payload-sdk/bin/prospero-lld" \
+-    "${tls_flags[@]}" "${radv_link_flags[@]}" -L "$sdk/target/lib" \
++    "${tls_flags[@]}" "${radv_link_flags[@]}" "${netfs_flags[@]}" -L "$sdk/target/lib" \
+     --defsym=__dlopen=0 --defsym=__dlsym=0 --defsym=__dladdr=0 \
+     --defsym=__dlclose=0 --defsym=__dlerror=0 \
+     -T "$template/tooling/native/ps5-pie.ld" -T "$root/tools/unwind.ld" \

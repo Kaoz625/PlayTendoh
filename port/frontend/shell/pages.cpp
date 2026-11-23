@@ -1318,8 +1318,8 @@ namespace ps5shell
 				message = n3ds ? Tr("Games can be .3ds or .cci, .cxi or .3dsx, decrypted, alone or in .zip, .7z or .rar archives, and .cia files, here "
 									"or in the folders in it. Triangle uses the folder shown.") :
 					nds		   ? Tr("Games are .nds files, alone or in .zip, .7z or .rar archives, here or in the folders in it. Triangle uses the folder shown.") :
-				nx		   ? Tr("Games are .nsp and .xci files, here or each in a folder of its own with its update and DLC. Network shares are out "
-								"of Eden's reach. Triangle uses the folder shown.") :
+				nx		   ? Tr("Games are .nsp and .xci files, here or each in a folder of its own with its update and DLC. "
+								"Triangle uses the folder shown.") :
 								 Tr("Games can be .wua, .wud, .wux, or folders with code, content and meta, alone or in .zip, .7z or .rar archives. "
 									"Triangle uses the folder shown.");
 		}
