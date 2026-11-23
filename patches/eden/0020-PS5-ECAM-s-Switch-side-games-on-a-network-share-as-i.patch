@@ -15,10 +15,10 @@ path not under /net goes to the C library as before; nothing is written to a sha
 ---
  headless/CMakeLists.txt       |  7 ++++
  headless/ecam.cmake           | 49 +++++++++++++++++++++++++++
- headless/ecam_netfs_glue.cpp  | 62 +++++++++++++++++++++++++++++++++++
+ headless/ecam_netfs_glue.cpp  | 63 +++++++++++++++++++++++++++++++++++
  headless/main.cpp             | 28 ++++++++++++++++
  tools/link-headless-native.sh | 41 ++++++++++++++++++++++-
- 5 files changed, 186 insertions(+), 1 deletion(-)
+ 5 files changed, 187 insertions(+), 1 deletion(-)
  create mode 100644 headless/ecam_netfs_glue.cpp
 
 diff --git a/headless/CMakeLists.txt b/headless/CMakeLists.txt
@@ -98,10 +98,10 @@ index 021c75f..a649404 100644
 +endif()
 diff --git a/headless/ecam_netfs_glue.cpp b/headless/ecam_netfs_glue.cpp
 new file mode 100644
-index 0000000..9cb002e
+index 0000000..7340402
 --- /dev/null
 +++ b/headless/ecam_netfs_glue.cpp
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,63 @@
 +// SPDX-License-Identifier: GPL-3.0-or-later
 +// PS5-ECAM's network shares on the Switch side: the host lookup PS5-ECAM's port/app/netfs.cpp asks
 +// for (ps5net::Resolve), the console's own resolver as PS5-ECAM's port/ps5/net.cpp asks it, without
@@ -110,6 +110,7 @@ index 0000000..9cb002e
 +
 +#include <arpa/inet.h>
 +#include <netinet/in.h>
++#include <sys/socket.h>
 +
 +#include <cstdint>
 +#include <cstdio>
