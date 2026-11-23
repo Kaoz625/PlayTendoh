@@ -17,8 +17,8 @@ path not under /net goes to the C library as before; nothing is written to a sha
  headless/ecam.cmake           | 49 +++++++++++++++++++++++++++
  headless/ecam_netfs_glue.cpp  | 63 +++++++++++++++++++++++++++++++++++
  headless/main.cpp             | 28 ++++++++++++++++
- tools/link-headless-native.sh | 41 ++++++++++++++++++++++-
- 5 files changed, 187 insertions(+), 1 deletion(-)
+ tools/link-headless-native.sh | 44 +++++++++++++++++++++++-
+ 5 files changed, 190 insertions(+), 1 deletion(-)
  create mode 100644 headless/ecam_netfs_glue.cpp
 
 diff --git a/headless/CMakeLists.txt b/headless/CMakeLists.txt
@@ -212,10 +212,10 @@ index c203183..e2ce32b 100644
              ps5_opengl_heap_snapshot("allocation_failure", 0);
              std::fflush(stdout);
 diff --git a/tools/link-headless-native.sh b/tools/link-headless-native.sh
-index 73e1fad..ac1d3cf 100644
+index 73e1fad..ce6ff94 100644
 --- a/tools/link-headless-native.sh
 +++ b/tools/link-headless-native.sh
-@@ -29,6 +29,45 @@ if [[ -n $radv_archive ]]; then
+@@ -29,6 +29,48 @@ if [[ -n $radv_archive ]]; then
      # RADV's platform provides the real thread-local destructor registration.
      tls_flags=()
  fi
@@ -238,6 +238,9 @@ index 73e1fad..ac1d3cf 100644
 +            if [[ ${radv_link_flags[index]} == "--defsym=$name=ps5_$name" ]]; then
 +                radv_link_flags[index]="--defsym=$name=ps5cemu_$name"
 +                netfs_flags+=("--undefined=ps5_$name" "--undefined=ps5cemu_$name")
++                # netfs_files.cpp calls the platform's ps5_$name then, never its weak __real_$name:
++                # null, so it stays out of the imports (the packager takes only system modules')
++                netfs_flags+=("--defsym=__real_$name=0")
 +                bound=1
 +            fi
 +        done
@@ -261,7 +264,7 @@ index 73e1fad..ac1d3cf 100644
  # Mesa's Vulkan entrypoint tables reference optional driver entrypoints as weak
  # symbols (vk_entrypoints_gen --weak). An unimplemented one must resolve to 0,
  # not become a dynamic import the native packager has no SDK stub for.
-@@ -40,7 +79,7 @@ fi
+@@ -40,7 +82,7 @@ fi
  # The SDK's dlfcn wrappers explicitly return unavailable when these optional
  # weak hooks are null. This static frontend supplies no dynamic-loader hooks.
  "$template/.deps/native/ps5-payload-sdk/bin/prospero-lld" \
