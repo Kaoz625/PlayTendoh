@@ -212,7 +212,7 @@ index c203183..e2ce32b 100644
              ps5_opengl_heap_snapshot("allocation_failure", 0);
              std::fflush(stdout);
 diff --git a/tools/link-headless-native.sh b/tools/link-headless-native.sh
-index 73e1fad..18d5d82 100644
+index 73e1fad..ac1d3cf 100644
 --- a/tools/link-headless-native.sh
 +++ b/tools/link-headless-native.sh
 @@ -29,6 +29,45 @@ if [[ -n $radv_archive ]]; then
@@ -224,7 +224,7 @@ index 73e1fad..18d5d82 100644
 +# paths and passes every other on after one comparison, as in PS5-ECAM's own link (its tools/link.sh).
 +netfs_flags=()
 +for argument in "${libraries[@]}"; do
-+    [[ $argument == */libecam_netfs.a ]] || continue
++    [[ $argument == libecam_netfs.a || $argument == */libecam_netfs.a ]] || continue  # CMake names it bare, from its build folder
 +    for name in open read pread lseek close fstat stat lstat realpath fopen fclose fflush fread fwrite \
 +            fseek fseeko ftell ftello rewind feof ferror clearerr fgetc getc ungetc fgets fileno; do
 +        netfs_flags+=("--wrap=$name")
